@@ -153,7 +153,7 @@ class GameManager:
                 to_move = {"col": 0, "row": 0}
                 num = random.randint(-1, 1)
                 to_move[random.choice(["col", "row"])] = num
-                return max(min(enemy["col"] + to_move["col"], height - 1), 0), max(min(enemy["row"] + to_move["row"], width - 1), 0)
+                return max(min(enemy["col"] + to_move["col"], width - 1), 0), max(min(enemy["row"] + to_move["row"], height - 1), 0)
             after_col, after_row = move(self.width, self.height)
             iters = 0
             while self.board[after_col][after_row] in ("box", "completed_box", "wall", "enemy", "player"):
