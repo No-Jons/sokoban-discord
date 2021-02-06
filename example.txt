@@ -1,0 +1,5 @@
+empty empty empty empty empty
+empty empty player empty empty
+empty empty box empty empty
+empty empty goal empty empty
+empty empty empty empty empty
