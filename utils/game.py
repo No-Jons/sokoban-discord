@@ -17,13 +17,13 @@ class Games:
                 return True
         return False
 
-    def new(self, user, channel, emoji_player, level_id="1", file=None, content=None):
+    def new(self, user, channel, emoji_player, level_id="1", file=None, content=None, text=None):
         self.format_key["player"] = emojis.encode((emoji_player or "🔵"))
         self.games.append(
             {
                 "user": user.id,
                 "channel": channel.id,
-                "game": GameManager(level_id, emoji_player=emoji_player, file=file, content=content)
+                "game": GameManager(level_id, emoji_player=emoji_player, file=file, content=content, text=text)
             }
         )
 
@@ -57,26 +57,26 @@ class Games:
         for emoji in self.emojis:
             await message.add_reaction(emoji)
 
-    async def update_board(self, user_id, message):
-        board = self.format_board(user_id)
-        game = self.get_game(user_id)
+    async def update_board(self, user, message):
+        board = self.format_board(user.id)
+        game = self.get_game(user.id)
         title = f"Level {game.level_id}" if game.random_levels else "Custom Level"
         embed = discord.Embed(title=title, description=board, color=discord.Color.red())
         await message.edit(embed=embed)
 
 
 class GameManager:
-    def __init__(self, level_id, emoji_player, file=None, content=None):
+    def __init__(self, level_id, emoji_player, file=None, content=None, text=None):
         self.col = 0
         self.row = 0
         self.level_id = level_id
         self.emoji_player = emoji_player
-        self.random_levels = (not (file or content))
+        self.random_levels = (not (file or content or text))
 
         if self.random_levels:
             self.board = RandomBoard(5, 5, int(self.level_id), int(self.level_id)).board
         else:
-            board = CustomBoard(file, content)
+            board = CustomBoard(file, content, text)
             checks = board.check_for_validity()
             error_message = ""
             for key in checks.keys():
@@ -222,12 +222,16 @@ class RandomBoard:
 
 
 class CustomBoard:
-    def __init__(self, file=None, board=None):
+    def __init__(self, file=None, board=None, text=None):
         self.file = file
+        self.text = text
         self.valid_tiles = ["player", "box", "empty", "goal", "wall", "enemy"]
         if self.file:
             self.content = self.file.decode("utf-8")
             self.board = [[re.sub("\r", "", i) for i in k.split(" ")] for k in self.content.split("\n")]
+            self.remove_invalid_tiles()
+        if self.text:
+            self.board = [[re.sub("\r", "", i) for i in k.split(" ")] for k in self.text.split("\n")]
             self.remove_invalid_tiles()
         elif board:
             self.board = copy.deepcopy(board)

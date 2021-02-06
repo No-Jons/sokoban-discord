@@ -22,6 +22,7 @@ class GameCog(commands.Cog):
     async def play(self, ctx, emoji: str = None, level: str = "1"):
         if self.games.check_active(ctx.author.id, ctx.channel.id):
             return await ctx.send("Cannot start game: game is already active in this channel")
+        self.bot.logger.info(f"[{ctx.author.id}] Started new infinite game")
         self.games.new(ctx.author, ctx.channel, level_id=level, emoji_player=emoji)
         game = self.games.get_game(ctx.author.id)
         await self.finish_setup(ctx, title=f"Level {game.level_id}")
@@ -30,6 +31,7 @@ class GameCog(commands.Cog):
     async def end(self, ctx):
         if not self.games.check_active(ctx.author.id, ctx.channel.id):
             return await ctx.send("Cannot end game: no game to end")
+        self.bot.logger.info(f"[{ctx.author.id}] Ended game")
         self.games.delete(ctx.author.id)
         await ctx.send("Ended game!")
 
@@ -44,10 +46,25 @@ class GameCog(commands.Cog):
         if not ctx.message.attachments:
             await ctx.send("You must provide a text file for me to parse!")
             return
+        self.bot.logger.info(f"[{ctx.author.id}] Submitted new custom level file")
         file = await ctx.message.attachments[0].read()
         try:
             self.games.new(ctx.author, ctx.channel, emoji_player=emoji, file=file)
         except GameError as e:
+            self.bot.logger.info(f"[{ctx.author.id}] File was deemed invalid")
+            await ctx.send(e.message)
+            return
+        await self.finish_setup(ctx, title="Custom Level")
+
+    @custom.command(name="text")
+    async def text(self, ctx, *, text):
+        if self.games.check_active(ctx.author.id, ctx.channel.id):
+            return await ctx.send("Cannot start game: game is already active in this channel")
+        self.bot.logger.info(f"[{ctx.author.id}] Submitted new custom level string")
+        try:
+            self.games.new(ctx.author, ctx.channel, emoji_player=None, text=text)
+        except GameError as e:
+            self.bot.logger.info(f"[{ctx.author.id}] String was deemed invalid")
             await ctx.send(e.message)
             return
         await self.finish_setup(ctx, title="Custom Level")
@@ -61,6 +78,7 @@ class GameCog(commands.Cog):
         if not level:
             await ctx.send("Cannot find level")
             return
+        self.bot.logger.info(f"[{ctx.author.id}] Started playing {member.id}'s level")
         self.games.new(ctx.author, ctx.channel, emoji_player=emoji, content=level)
         await self.finish_setup(ctx, title="Custom Level")
 
@@ -70,6 +88,7 @@ class GameCog(commands.Cog):
         msg = await ctx.send(embed=embed)
         await self.games.react_to(msg)
         self.valid_messages.append(msg.id)
+        self.bot.logger.debug(f"[{ctx.author.id}] Finished game setup")
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction, user):
@@ -78,10 +97,12 @@ class GameCog(commands.Cog):
         game = self.games.get_game(user.id)
         if reaction.emoji == "🔁":
             game.reset()
-            await self.games.update_board(user.id, reaction.message)
+            await self.games.update_board(user, reaction.message)
+            self.bot.logger.debug(f"[{user.id}] Reset board")
         else:
             win = await game.move(reaction.emoji)
-            await self.games.update_board(user.id, reaction.message)
+            await self.games.update_board(user, reaction.message)
+            self.bot.logger.debug(f"[{user.id}] Moved player piece")
             if win:
                 self.games.delete(user.id)
                 idx = self.valid_messages.index(reaction.message.id)
@@ -92,6 +113,7 @@ class GameCog(commands.Cog):
                     await self.custom_level_win(game, user, reaction.message)
 
     async def random_level_win(self, game, user, message):
+        self.bot.logger.info(f"[{user.id}] Won level")
         embed = discord.Embed(title="You win!", description="Wow! Good job!", color=discord.Color.red())
         embed.set_footer(text=f"Next level: {game.next_level}")
         await message.channel.send(embed=embed)
@@ -105,6 +127,7 @@ class GameCog(commands.Cog):
         self.valid_messages.append(msg.id)
 
     async def custom_level_win(self, game, user, message):
+        self.bot.logger.info(f"[{user.id}] Won custom level")
         if not game.saved:
             embed = discord.Embed(title="Level completed!", description="Would you like to save your level?",
                                   color=discord.Color.red())
@@ -118,6 +141,7 @@ class GameCog(commands.Cog):
                 await msg.clear_reactions()
                 return
             if r.emoji == "✅":
+                self.bot.logger.info(f"[{user.id}] Saved custom level")
                 self.levels[str(user.id)] = copy.deepcopy(game.initial_board)
                 embed = discord.Embed(title="Level saved!", color=discord.Color.red())
                 await msg.edit(embed=embed)
@@ -130,6 +154,7 @@ class GameCog(commands.Cog):
     async def save_levels(self):
         with open("config/levels.json", "w") as fp:
             json.dump(self.levels, fp)
+        self.bot.logger.info("Saving custom levels json")
 
 
 def setup(bot):
