@@ -1,7 +1,6 @@
 import discord
 import asyncio
 import json
-import copy
 
 from discord.ext import commands, tasks
 from utils.game import Games, GameError
@@ -18,12 +17,26 @@ class GameCog(commands.Cog):
 
         self.save_levels.start()
 
-    @commands.command()
-    async def play(self, ctx, emoji: str = None, level: str = "1"):
+    @commands.group()
+    async def play(self, ctx):
+        pass
+
+    @play.command(name="infinite", aliases=["inf", "i"])
+    async def infinite(self, ctx, emoji=None, level="1"):
         if self.games.check_active(ctx.author.id, ctx.channel.id):
             return await ctx.send("Cannot start game: game is already active in this channel")
         self.bot.logger.info(f"[{ctx.author.id}] Started new infinite game")
         self.games.new(ctx.author, ctx.channel, level_id=level, emoji_player=emoji)
+        game = self.games.get_game(ctx.author.id)
+        await self.finish_setup(ctx, title=f"Level {game.level_id}")
+
+    @play.command(name="challenge", aliases=["moves", "c"])
+    async def challenge(self, ctx, emoji=None, level="1"):
+        if self.games.check_active(ctx.author.id, ctx.channel.id):
+            return await ctx.send("Cannot start game: game is already active in this channel")
+        self.bot.logger.info(f"[{ctx.author.id}] Started new infinite game")
+        moves = 5 + (10 * round(.51 * int(level)))
+        self.games.new(ctx.author, ctx.channel, level_id=level, emoji_player=emoji, moves=moves)
         game = self.games.get_game(ctx.author.id)
         await self.finish_setup(ctx, title=f"Level {game.level_id}")
 
@@ -84,7 +97,10 @@ class GameCog(commands.Cog):
 
     async def finish_setup(self, ctx, title):
         board = self.games.format_board(ctx.author.id)
+        game = self.games.get_game(ctx.author.id)
         embed = discord.Embed(title=title, description=board, color=discord.Color.red())
+        if game.moves:
+            embed.add_field(name="Moves left:", value=game.moves)
         msg = await ctx.send(embed=embed)
         await self.games.react_to(msg)
         self.valid_messages.append(msg.id)
@@ -100,10 +116,10 @@ class GameCog(commands.Cog):
             await self.games.update_board(user, reaction.message)
             self.bot.logger.debug(f"[{user.id}] Reset board")
         else:
-            win = await game.move(reaction.emoji)
+            results = await game.move(reaction.emoji)
             await self.games.update_board(user, reaction.message)
             self.bot.logger.debug(f"[{user.id}] Moved player piece")
-            if win:
+            if results["win"]:
                 self.games.delete(user.id)
                 idx = self.valid_messages.index(reaction.message.id)
                 del self.valid_messages[idx]
@@ -111,17 +127,27 @@ class GameCog(commands.Cog):
                     await self.random_level_win(game, user, reaction.message)
                 else:
                     await self.custom_level_win(game, user, reaction.message)
+            elif results["loss"]:
+                self.games.delete(user.id)
+                idx = self.valid_messages.index(reaction.message.id)
+                del self.valid_messages[idx]
+                await self.game_loss(game, user, reaction.message)
 
     async def random_level_win(self, game, user, message):
         self.bot.logger.info(f"[{user.id}] Won level")
         embed = discord.Embed(title="You win!", description="Wow! Good job!", color=discord.Color.red())
         embed.set_footer(text=f"Next level: {game.next_level}")
+        moves = None
+        if game.moves:
+            moves = 7 + (8 * round(.51 * int(game.level_id) + 1))
         await message.channel.send(embed=embed)
         self.games.new(user, message.channel, emoji_player=game.emoji_player,
-                       level_id=game.next_level)
+                       level_id=game.next_level, moves=moves)
         board = self.games.format_board(user.id)
         game = self.games.get_game(user.id)
         embed = discord.Embed(title=f"Level {game.level_id}", description=board, color=discord.Color.red())
+        if game.moves:
+            embed.add_field(name="Moves left:", value=game.moves)
         msg = await message.channel.send(embed=embed)
         await self.games.react_to(msg)
         self.valid_messages.append(msg.id)
@@ -142,15 +168,24 @@ class GameCog(commands.Cog):
                 return
             if r.emoji == "✅":
                 self.bot.logger.info(f"[{user.id}] Saved custom level")
-                self.levels[str(user.id)] = copy.deepcopy(game.initial_board)
+                self.levels[str(user.id)] = game.board_string
                 embed = discord.Embed(title="Level saved!", color=discord.Color.red())
                 await msg.edit(embed=embed)
+            else:
+                self.bot.logger.info(f"[{user.id}] Not saving custom level")
             await msg.clear_reactions()
         else:
             embed = discord.Embed(title="Level completed!", color=discord.Color.red())
             await message.channel.send(embed=embed)
 
-    @tasks.loop(minutes=1)
+    async def game_loss(self, game, user, message):
+        self.bot.logger.info(f"[{user.id}] Lost level, ran out of moves")
+        embed = discord.Embed(title="You lost...", description="Better luck next time", color=discord.Color.red())
+        if game.random_levels:
+            embed.add_field(name="Levels completed:", value=str(int(game.level_id) - 1))
+        await message.channel.send(embed=embed)
+
+    @tasks.loop(minutes=20)
     async def save_levels(self):
         with open("config/levels.json", "w") as fp:
             json.dump(self.levels, fp)

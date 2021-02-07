@@ -17,13 +17,18 @@ class Games:
                 return True
         return False
 
-    def new(self, user, channel, emoji_player, level_id="1", file=None, content=None, text=None):
-        self.format_key["player"] = emojis.encode((emoji_player or "🔵"))
+    def new(self, user, channel, emoji_player, level_id="1", moves=None, file=None, content=None, text=None):
+        def check_emoji(emoji):
+            if (not re.match(r"<a?:[!-~]+:\d+>", emoji)) and (emojis.count(emoji) == 0 or emojis.count(emoji) > 1):
+                return None
+            return emoji
+        self.format_key["player"] = "🔵" if emoji_player is None else (check_emoji(emoji_player) or "🔵")
         self.games.append(
             {
                 "user": user.id,
                 "channel": channel.id,
-                "game": GameManager(level_id, emoji_player=emoji_player, file=file, content=content, text=text)
+                "game": GameManager(level_id, emoji_player=emoji_player, moves=moves, file=file,
+                                    content=content, text=text)
             }
         )
 
@@ -62,16 +67,22 @@ class Games:
         game = self.get_game(user.id)
         title = f"Level {game.level_id}" if game.random_levels else "Custom Level"
         embed = discord.Embed(title=title, description=board, color=discord.Color.red())
+        if game.moves:
+            embed.add_field(name="Moves left:", value=game.moves - game.moves_made)
         await message.edit(embed=embed)
 
 
 class GameManager:
-    def __init__(self, level_id, emoji_player, file=None, content=None, text=None):
+    def __init__(self, level_id, emoji_player, moves=None, file=None, content=None, text=None):
         self.col = 0
         self.row = 0
         self.level_id = level_id
         self.emoji_player = emoji_player
         self.random_levels = (not (file or content or text))
+        self.max_moves = 100
+        self.moves = moves if moves is None else (moves if moves < self.max_moves else self.max_moves)
+        self.moves_made = 0
+        self.board_string = None
 
         if self.random_levels:
             self.board = RandomBoard(5, 5, int(self.level_id), int(self.level_id)).board
@@ -86,6 +97,8 @@ class GameManager:
                 raise GameError(error_message)
             else:
                 self.board = board.board
+                self.moves = board.moves
+                self.board_string = board.board_string
 
         self.initial_board = copy.deepcopy(self.board)
         self.saved = (content is not None)
@@ -136,7 +149,10 @@ class GameManager:
         self.col = after_col
         self.row = after_row
         self.move_enemies()
-        return self.check_for_win()
+        self.moves_made += 1
+        results = {"win": self.check_for_win(),
+                   "loss": False if self.moves is None else (self.moves_made >= self.moves)}
+        return results
 
     def find_enemies(self):
         enemies = list()
@@ -180,12 +196,12 @@ class GameManager:
 
 class RandomBoard:
     def __init__(self, width, height, boxes, level):
-        self.max_boxes = 10
+        self.max_boxes = 12
         self.box_count = round(boxes * .51) if (round(boxes * .51) <= self.max_boxes) else self.max_boxes
         self.level = level
         self.enemy_count = 1 * ((int(self.level) >= 10) + (int(self.level) >= 100))
-        self.max_width = 9
-        self.max_height = 9
+        self.max_width = 10
+        self.max_height = 10
         self.width = round(width + (.15 * level)) if not round(width + (.2 * level)) > self.max_width else self.max_width
         self.height = round(height + (.1 * level)) if not round(height + (.2 * level)) > self.max_height else self.max_height
         self.board = [["empty" for _ in range(self.width)] for _ in range(self.height)]
@@ -223,18 +239,34 @@ class RandomBoard:
 
 class CustomBoard:
     def __init__(self, file=None, board=None, text=None):
+        self.moves = None
         self.file = file
-        self.text = text
+        self.text = text if text is None else self.parse_text(text)
         self.valid_tiles = ["player", "box", "empty", "goal", "wall", "enemy"]
         if self.file:
-            self.content = self.file.decode("utf-8")
-            self.board = [[re.sub("\r", "", i) for i in k.split(" ")] for k in self.content.split("\n")]
+            self.content = self.parse_text(self.file.decode("utf-8"))
+            self.board_string = self.content
+            self.board = [[re.sub("\r", "", i) for i in k.split(" ")] for k in self.remove_args(self.content).split("\n")]
             self.remove_invalid_tiles()
         if self.text:
-            self.board = [[re.sub("\r", "", i) for i in k.split(" ")] for k in self.text.split("\n")]
+            self.board_string = self.text
+            self.board = [[re.sub("\r", "", i) for i in k.split(" ")] for k in self.remove_args(self.text).split("\n")]
             self.remove_invalid_tiles()
         elif board:
-            self.board = copy.deepcopy(board)
+            self.board_string = board
+            self.parse_text(board)
+            self.board = [[re.sub("\r", "", i) for i in k.split(" ")] for k in self.remove_args(board).split("\n")]
+
+    def parse_text(self, text):
+        moves_match = re.search(r"-?\s?\s?moves:\s?(\d+)\n?", text)
+        if moves_match:
+            self.moves = int(moves_match.group(1))
+        return text
+
+    @staticmethod
+    def remove_args(text):
+        text = re.sub(r"`+([A-z]+)?\n?", "", text)
+        return re.sub(r"(-\s?)?\s?moves:\s?(\d+)\n?", "", text)
 
     def check_for_validity(self):
         checks = {"box_to_goal": None, "no_boxes_or_goals": None, "player_error": None,

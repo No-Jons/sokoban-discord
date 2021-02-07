@@ -15,9 +15,9 @@ class Handler(commands.Cog):
                 args.append(arg)
         self.bot.logger.info(f"[{ctx.author.id}] invoked command {ctx.command.name} [args: {args} kwargs: {ctx.kwargs}]")
 
-    @commands.Cog.listener()
-    async def on_command_error(self, ctx, error):
-        self.bot.logger.error(f"Command {ctx.command.name} errored out: {error.__class__.__name__}: {str(error)}")
+    # @commands.Cog.listener()
+    # async def on_command_error(self, ctx, error):
+    #     self.bot.logger.error(f"Command {ctx.command.name} errored out: {error.__class__.__name__}: {str(error)}")
 
 
 def setup(bot):
