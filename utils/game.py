@@ -88,6 +88,7 @@ class GameManager:
             self.board = RandomBoard(5, 5, int(self.level_id), int(self.level_id)).board
         else:
             board = CustomBoard(file, content, text)
+            board.remove_invalid_tiles()
             checks = board.check_for_validity()
             error_message = ""
             for key in checks.keys():
@@ -247,11 +248,9 @@ class CustomBoard:
             self.content = self.parse_text(self.file.decode("utf-8"))
             self.board_string = self.content
             self.board = [[re.sub("\r", "", i) for i in k.split(" ")] for k in self.remove_args(self.content).split("\n")]
-            self.remove_invalid_tiles()
         if self.text:
             self.board_string = self.text
             self.board = [[re.sub("\r", "", i) for i in k.split(" ")] for k in self.remove_args(self.text).split("\n")]
-            self.remove_invalid_tiles()
         elif board:
             self.board_string = board
             self.parse_text(board)

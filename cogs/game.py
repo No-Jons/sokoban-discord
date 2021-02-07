@@ -17,6 +17,14 @@ class GameCog(commands.Cog):
 
         self.save_levels.start()
 
+    @commands.is_owner()
+    @commands.command()
+    async def force_save(self, ctx):
+        with open("config/levels.json", "w") as fp:
+            json.dump(self.levels, fp)
+        self.bot.logger.info("[ADMIN] Saving custom levels json")
+        await ctx.send("Saved custom levels json")
+
     @commands.group()
     async def play(self, ctx):
         pass
