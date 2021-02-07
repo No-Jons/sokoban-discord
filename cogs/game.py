@@ -121,6 +121,7 @@ class GameCog(commands.Cog):
         game = self.games.get_game(user.id)
         if reaction.emoji == "🔁":
             game.reset()
+            game.moves_made = 0
             await self.games.update_board(user, reaction.message)
             self.bot.logger.debug(f"[{user.id}] Reset board")
         else:
